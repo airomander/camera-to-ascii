@@ -1,10 +1,17 @@
 import sys
+import ctypes
 from pathlib import Path
 from datetime import datetime
 
-_root = str(Path(__file__).resolve().parent.parent)
-if _root not in sys.path:
-    sys.path.insert(0, _root)
+_FROZEN = getattr(sys, "frozen", False)
+
+if _FROZEN:
+    APP_ROOT = Path(sys.executable).resolve().parent
+else:
+    APP_ROOT = Path(__file__).resolve().parent.parent
+    _root = str(APP_ROOT)
+    if _root not in sys.path:
+        sys.path.insert(0, _root)
 
 import pygame
 import numpy as np
@@ -29,7 +36,7 @@ MODES = [
 
 
 def save_screenshot(screen: pygame.Surface) -> str:
-    shots_dir = Path(_root) / "screenshots"
+    shots_dir = APP_ROOT / "screenshots"
     shots_dir.mkdir(exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = shots_dir / f"screenshot_{stamp}.png"
@@ -37,20 +44,26 @@ def save_screenshot(screen: pygame.Surface) -> str:
     return str(path)
 
 
+def _fatal(msg: str) -> None:
+    if _FROZEN:
+        ctypes.windll.user32.MessageBoxW(0, msg, "CamASCII Error", 0x10)
+    else:
+        print(f"Error: {msg}")
+    sys.exit(1)
+
+
 def main() -> None:
     try:
         camera = Webcam(CAMERA_INDEX)
     except RuntimeError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+        _fatal(str(e))
 
     converter = AsciiConverter(CHAR_SET)
 
     frame = camera.get_frame()
     if frame is None:
-        print("Error: Could not read frame from camera")
         camera.release()
-        sys.exit(1)
+        _fatal("Could not read frame from camera")
 
     h, w = frame.shape[:2]
     rows = max(1, int(COLS * (h / w) * 0.5))
@@ -79,15 +92,8 @@ def main() -> None:
 
             mode = MODES[active_idx]
 
-            # Process frame through the active mode
-            result = mode.process(frame, converter, COLS, rows)
-            if len(result) == 2:
-                char_indices, colors = result
-            else:
-                char_indices = result
-                colors = None
-
-            display.render(char_indices, colors)
+            content = mode.process(frame, converter, COLS, rows)
+            display.render(content, mode)
             clock.tick(FPS_LIMIT)
 
     finally:

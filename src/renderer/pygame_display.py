@@ -1,3 +1,4 @@
+import cv2
 import pygame
 import numpy as np
 
@@ -32,7 +33,7 @@ class PygameDisplay:
 
         self.screen = pygame.display.set_mode((self.window_w, self.window_h))
 
-        self._def_surfs = [
+        self._char_surfs = [
             self.font.render(c, True, (255, 255, 255)) for c in char_set
         ]
 
@@ -66,30 +67,46 @@ class PygameDisplay:
                     result = r
         return result
 
-    def render(self, char_indices: np.ndarray,
-               colors: np.ndarray | None = None) -> None:
-        mode = self._active_mode
+    def render(self, content, mode=None) -> None:
+        if mode is None:
+            mode = self._active_mode
+
         self.screen.fill(mode.bg_color)
 
-        cache = {}
+        if mode.render_type == "image":
+            self._render_image(content)
+        else:
+            char_indices, colors = content
+            self._render_ascii(char_indices, colors)
+
+        self.panel.draw(self.screen, self._active_idx, mode)
+        pygame.display.flip()
+
+    def _render_ascii(self, char_indices: np.ndarray,
+                      colors: np.ndarray | None = None) -> None:
         for y in range(min(self.rows, char_indices.shape[0])):
             for x in range(min(char_indices.shape[1], self.cols)):
                 idx = int(char_indices[y, x])
                 if idx >= len(self.char_set):
                     continue
-                if colors is not None:
-                    r, g, b = int(colors[y, x, 0]), int(colors[y, x, 1]), int(colors[y, x, 2])
-                    key = (idx, r, g, b)
-                    surf = cache.get(key)
-                    if surf is None:
-                        surf = self.font.render(self.char_set[idx], True, (r, g, b))
-                        cache[key] = surf
-                else:
-                    surf = self._def_surfs[idx]
-                self.screen.blit(surf, (x * self.char_w, y * self.char_h))
+                self.screen.blit(
+                    self._char_surfs[idx],
+                    (x * self.char_w, y * self.char_h),
+                )
 
-        self.panel.draw(self.screen, self._active_idx, mode)
-        pygame.display.flip()
+    def _render_image(self, frame_bgr: np.ndarray) -> None:
+        h, w = frame_bgr.shape[:2]
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
+        scale = min(self.ascii_w / w, self.ascii_h / h)
+        nw, nh = int(w * scale), int(h * scale)
+
+        surf = pygame.image.frombuffer(frame_rgb.tobytes(), (w, h), "RGB")
+        scaled = pygame.transform.scale(surf, (nw, nh))
+
+        x = (self.ascii_w - nw) // 2
+        y = (self.ascii_h - nh) // 2
+        self.screen.blit(scaled, (x, y))
 
     def should_quit(self) -> bool:
         return not self.running
